@@ -22,6 +22,24 @@ export const exercisesService = {
   },
 
   /**
+   * Search exercises with a limit (no total count returned)
+   * @param {Object} params - Query parameters
+   * @param {string} params.search - Search term
+   * @param {number} [params.limit=50] - Max results to return
+   * @returns {Promise} API response
+   */
+  searchExercises: async ({ search, limit = 50 }) => {
+    try {
+      const response = await apiClient.get('/search', {
+        params: { search, limit },
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
    * Get a single exercise by ID
    * @param {number} id - Exercise ID
    * @returns {Promise} API response

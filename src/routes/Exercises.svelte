@@ -1,11 +1,21 @@
 <script>
-  import { onMount } from 'svelte';
-  import { push } from 'svelte-spa-router';
-  import { 
-    Container, Row, Col, Spinner, Alert, 
-    ListGroup, ListGroupItem, Button, ButtonGroup, Input 
-  } from '@sveltestrap/sveltestrap';
-  import { exercisesService } from '../lib/services';
+  import { onMount } from "svelte";
+  import { push } from "svelte-spa-router";
+  import {
+    Container,
+    Spinner,
+    Alert,
+    ListGroup,
+    ListGroupItem,
+    Button,
+    ButtonGroup,
+    Input,
+    Modal,
+    ModalHeader,
+    ModalBody,
+    ModalFooter,
+  } from "@sveltestrap/sveltestrap";
+  import { exercisesService } from "../lib/services";
 
   // State
   let exercises = [];
@@ -14,6 +24,12 @@
   let total = 0;
   let limit = 20;
   let offset = 0;
+  let isSearchModalOpen = false;
+  let modalSearchTerm = "";
+  let modalResults = [];
+  let modalLoading = false;
+  let modalError = null;
+  let searchDebounceTimeout;
 
   // Reactive computed values
   $: currentPage = Math.floor(offset / limit) + 1;
@@ -31,13 +47,19 @@
     try {
       loading = true;
       error = null;
-      const response = await exercisesService.getExercises({ limit, offset });
+      const response = await exercisesService.getExercises({
+        limit,
+        offset,
+      });
       exercises = response.results;
       total = response.total;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
-      error = err.response?.data?.message || err.message || 'Failed to fetch exercises';
-      console.error('Error fetching exercises:', err);
+      error =
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to fetch exercises";
+      console.error("Error fetching exercises:", err);
     } finally {
       loading = false;
     }
@@ -57,6 +79,62 @@
     offset = 0;
     fetchExercises();
   }
+
+  function openSearchModal() {
+    isSearchModalOpen = true;
+    modalSearchTerm = "";
+    modalResults = [];
+    modalError = null;
+    modalLoading = false;
+    clearTimeout(searchDebounceTimeout);
+  }
+
+  function closeSearchModal() {
+    isSearchModalOpen = false;
+    modalLoading = false;
+    clearTimeout(searchDebounceTimeout);
+  }
+
+  function handleModalInput(event) {
+    const term = event.target.value;
+    modalSearchTerm = term;
+    clearTimeout(searchDebounceTimeout);
+    const trimmed = term.trim();
+
+    if (trimmed.length <= 3) {
+      modalResults = [];
+      modalError = null;
+      modalLoading = false;
+      return;
+    }
+
+    searchDebounceTimeout = setTimeout(() => searchExercisesModal(trimmed), 800);
+  }
+
+  async function searchExercisesModal(term) {
+    try {
+      modalLoading = true;
+      modalError = null;
+      const response = await exercisesService.searchExercises({
+        search: term,
+        limit: 50,
+      });
+      modalResults = Array.isArray(response) ? response : [];
+    } catch (err) {
+      modalError =
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to search exercises";
+      console.error("Error searching exercises:", err);
+    } finally {
+      modalLoading = false;
+    }
+  }
+
+  function handleModalExerciseClick(exerciseId) {
+    closeSearchModal();
+    handleExerciseClick(exerciseId);
+  }
 </script>
 
 <Container class="py-4">
@@ -74,6 +152,11 @@
         </div>
       {/if}
     </div>
+    <div class="search-bar mt-3">
+      <Button color="primary" on:click={openSearchModal}>
+        <i class="bi bi-search"></i> Search exercises
+      </Button>
+    </div>
   </div>
 
   {#if loading}
@@ -88,7 +171,7 @@
       <h4 class="alert-heading">Error!</h4>
       <p class="mb-0">{error}</p>
     </Alert>
-  {:else if exercises.length === 0}
+  {:else if exercises?.length === 0}
     <!-- Empty State -->
     <Alert color="info">
       <p class="mb-0">No exercises found.</p>
@@ -98,7 +181,8 @@
     <div class="pagination-controls-wrapper mb-3">
       <div class="pagination-info">
         <span class="text-muted">
-          Showing <strong>{startItem}-{endItem}</strong> of <strong>{total.toLocaleString()}</strong>
+          Showing <strong>{startItem}-{endItem}</strong> of
+          <strong>{total.toLocaleString()}</strong>
         </span>
       </div>
       <div class="pagination-controls">
@@ -164,26 +248,29 @@
     </div>
 
     <!-- Exercise List -->
-    <ListGroup class="exercise-list">
-      {#each exercises as exercise (exercise.id)}
-        <ListGroupItem 
-          action 
-          on:click={() => handleExerciseClick(exercise.id)}
-          class="exercise-item"
-        >
-          <div class="exercise-content">
-            <h5 class="exercise-name">{exercise.name}</h5>
-          </div>
-          <i class="bi bi-chevron-right text-muted"></i>
-        </ListGroupItem>
-      {/each}
-    </ListGroup>
+    {#if exercises?.length > 0}
+      <ListGroup class="exercise-list">
+        {#each exercises as exercise (exercise.id)}
+          <ListGroupItem
+            action
+            on:click={() => handleExerciseClick(exercise.id)}
+            class="exercise-item"
+          >
+            <div class="exercise-content">
+              <h5 class="exercise-name">{exercise.name}</h5>
+            </div>
+            <i class="bi bi-chevron-right text-muted"></i>
+          </ListGroupItem>
+        {/each}
+      </ListGroup>
+    {/if}
 
     <!-- Pagination Controls Bottom -->
     <div class="pagination-controls-wrapper mt-3">
       <div class="pagination-info">
         <span class="text-muted">
-          Showing <strong>{startItem}-{endItem}</strong> of <strong>{total.toLocaleString()}</strong>
+          Showing <strong>{startItem}-{endItem}</strong> of
+          <strong>{total.toLocaleString()}</strong>
         </span>
       </div>
       <div class="pagination-controls">
@@ -250,11 +337,86 @@
   {/if}
 </Container>
 
+<Modal isOpen={isSearchModalOpen} toggle={closeSearchModal} size="lg" scrollable>
+  <ModalHeader toggle={closeSearchModal}>Search exercises</ModalHeader>
+  <ModalBody>
+    <div class="modal-search-bar">
+      <Input
+        type="search"
+        placeholder="Type at least 4 characters"
+        bind:value={modalSearchTerm}
+        on:input={handleModalInput}
+      />
+      {#if modalLoading}
+        <Spinner
+          color="primary"
+          style="width: 1.5rem; height: 1.5rem;"
+          class="ms-2"
+        />
+      {/if}
+    </div>
+
+    {#if modalError}
+      <Alert color="danger" class="mt-3">
+        {modalError}
+      </Alert>
+    {/if}
+
+    {#if !modalLoading && !modalError && modalSearchTerm.trim().length > 3 && modalResults.length === 0}
+      <p class="text-muted mt-3">
+        No results for "{modalSearchTerm.trim()}".
+      </p>
+    {/if}
+
+    {#if modalResults.length > 0}
+      <ListGroup class="mt-3">
+        {#each modalResults as exercise (exercise.id)}
+          <ListGroupItem
+            action
+            on:click={() => handleModalExerciseClick(exercise.id)}
+            class="exercise-item"
+          >
+            <div class="exercise-content">
+              <h5 class="exercise-name">{exercise.name}</h5>
+              {#if exercise.primary_muscles?.length}
+                <small class="text-muted">
+                  {exercise.primary_muscles.join(", ")}
+                </small>
+              {/if}
+            </div>
+            <i class="bi bi-chevron-right text-muted"></i>
+          </ListGroupItem>
+        {/each}
+      </ListGroup>
+    {/if}
+  </ModalBody>
+  <ModalFooter>
+    <Button color="secondary" on:click={closeSearchModal}>Close</Button>
+  </ModalFooter>
+</Modal>
+
 <style>
   /* Header Section */
   .header-section {
     padding-bottom: 1.5rem;
     border-bottom: 2px solid #e9ecef;
+  }
+
+  .search-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  :global(.search-input) {
+    min-width: 240px;
+  }
+
+  .modal-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .total-count-card {
@@ -372,6 +534,15 @@
     .header-section .d-flex {
       flex-direction: column;
       gap: 1rem;
+    }
+
+    .search-bar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    :global(.search-input) {
+      width: 100%;
     }
 
     .total-count-card {
